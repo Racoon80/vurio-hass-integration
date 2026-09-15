@@ -36,7 +36,13 @@ async def test_the_card_learns_each_camera_with_its_entities(
     aioclient_mock: AiohttpClientMocker,
     hass_ws_client: WebSocketGenerator,
 ) -> None:
+    aioclient_mock.get(
+        f"{URL}/api/cameras/garden/measured",
+        json={"measured": True, "video": {"codec": "h264", "width": 3840, "height": 2160}},
+    )
+    aioclient_mock.get(f"{URL}/api/cameras/cave/measured", json={"measured": False})
     await set_up(hass, entry, aioclient_mock)
+    await hass.async_block_till_done()
     client = await hass_ws_client(hass)
 
     await client.send_json_auto_id({"type": "vurio/cameras"})
@@ -48,6 +54,9 @@ async def test_the_card_learns_each_camera_with_its_entities(
     assert garden["entity_id"] == "camera.garden"
     assert garden["sensor_entities"]["person"] == "binary_sensor.garden_person"
     assert garden["mode"] == "events"
+    assert garden["aspect"] == round(3840 / 2160, 4), "drawn in its main stream's shape"
+    cave = next(c for c in answer["result"]["cameras"] if c["camera"] == "cave")
+    assert cave["aspect"] is None, "not measured yet: the card keeps 16:9"
 
     assert await hass.config_entries.async_unload(entry.entry_id)
 

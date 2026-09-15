@@ -135,6 +135,15 @@ class VurioClient:
         )
         return list(answer.get("covered") or [])
 
+    async def measured(self, camera: str) -> tuple[int, int] | None:
+        """The camera's picture size, measured from a recent recording of its main stream."""
+        answer = await self._json(f"/api/cameras/{quote(camera)}/measured")
+        video = answer.get("video") or {}
+        width, height = video.get("width"), video.get("height")
+        if isinstance(width, int) and isinstance(height, int) and width > 0 and height > 0:
+            return width, height
+        return None
+
     async def timeline(self, cameras: list[str], start: datetime, end: datetime) -> dict[str, Any]:
         """Detections, and what was recorded, between two moments."""
         return await self._json(

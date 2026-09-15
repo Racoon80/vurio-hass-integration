@@ -66,6 +66,11 @@ class VurioLive extends LitElement {
     detail: { state: true },
   };
 
+  /** Stretched to the camera's own shape when it is known; see VurioCamera.aspect. */
+  private fit(): string {
+    return this.camera?.aspect ? "object-fit: fill" : "";
+  }
+
   hass?: Hass;
   camera?: VurioCamera;
   quality: "main" | "sub" = "sub";
@@ -136,7 +141,7 @@ class VurioLive extends LitElement {
 
   render() {
     return html`
-      <video playsinline autoplay .muted=${this.muted}></video>
+      <video playsinline autoplay .muted=${this.muted} style=${this.fit()}></video>
       ${this.status === "live"
         ? nothing
         : html`<div class="status">${this.status === "failed" ? `No picture: ${this.detail}` : "Connecting…"}</div>`}
@@ -376,7 +381,7 @@ class VurioCard extends LitElement {
   private single(camera: VurioCamera) {
     const sensors = KINDS.filter((kind) => this.sensor(camera, kind));
     return html`
-      <div class="stage">
+      <div class="stage" style="aspect-ratio: ${camera.aspect ?? 16 / 9}">
         ${this.playing
           ? html`<video class="playback" src=${this.playing.url} controls autoplay playsinline></video>`
           : html`<vurio-live
@@ -416,7 +421,7 @@ class VurioCard extends LitElement {
         ${this.cameras.map((camera) => {
           const sensors = KINDS.filter((kind) => kind !== "motion" && this.sensor(camera, kind));
           return html`
-            <div class="tile" @click=${() => this.choose(camera.camera)}>
+            <div class="tile" style="aspect-ratio: ${camera.aspect ?? 16 / 9}" @click=${() => this.choose(camera.camera)}>
               <vurio-live .hass=${this.hass} .camera=${camera} quality="sub" .muted=${true}></vurio-live>
               <div class="overlay top small">
                 <span class="dot ${camera.online ? "online" : "offline"}"></span>

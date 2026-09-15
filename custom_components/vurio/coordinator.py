@@ -60,14 +60,41 @@ class VurioCoordinator(DataUpdateCoordinator[VurioData]):
             update_interval=timedelta(minutes=5),
         )
         self.client = client
+        # Width over height of each camera's main stream. A substream is the
+        # same picture made smaller, not always kept in shape — an Anpviz sends
+        # 720×480 of a 16:9 sensor — so the card draws every stream of a camera
+        # in this shape rather than in the one its pixels happen to have.
+        self.aspects: dict[str, float] = {}
+        self._measuring = False
 
     async def _async_update_data(self) -> VurioData:
         try:
-            return parse(await self.client.integration())
+            data = parse(await self.client.integration())
         except VurioAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except VurioError as err:
             raise UpdateFailed(str(err)) from err
+
+        unmeasured = [name for name in data.cameras if name not in self.aspects]
+        if unmeasured and not self._measuring:
+            self._measuring = True
+            self.hass.async_create_task(self._measure(unmeasured), f"{DOMAIN} measure cameras")
+
+        return data
+
+    async def _measure(self, cameras: list[str]) -> None:
+        """Learn each camera's shape once. A shape is cosmetic: nothing here may fail setup."""
+        try:
+            for camera in cameras:
+                try:
+                    size = await self.client.measured(camera)
+                except Exception as err:  # noqa: BLE001 - the card falls back to 16:9
+                    LOGGER.debug("could not measure %s: %s", camera, err)
+                    continue
+                if size:
+                    self.aspects[camera] = round(size[0] / size[1], 4)
+        finally:
+            self._measuring = False
 
     def start_stream(self) -> None:
         """Listen to Vurio's events until the entry is unloaded."""

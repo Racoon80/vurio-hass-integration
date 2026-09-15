@@ -67,6 +67,7 @@ async def cameras(hass: HomeAssistant, connection: websocket_api.ActiveConnectio
                     "recording": bool(camera.get("recording")),
                     "detection": bool(camera.get("detection")),
                     "sensors": camera.get("sensors", {}),
+                    "aspect": coordinator.aspects.get(name),
                     "sensor_entities": {
                         kind: entity
                         for kind in KINDS

@@ -33,6 +33,12 @@ export interface VurioCamera {
   recording: boolean;
   detection: boolean;
   sensors: Partial<Record<Kind, boolean>>;
+  /**
+   * Width over height of the camera's main stream, when Vurio has measured it.
+   * Every stream of the camera is drawn in this shape: a substream is the same
+   * picture made smaller, and not every camera keeps it in shape.
+   */
+  aspect: number | null;
   /** The entity id of each sensor, so the card follows Home Assistant's state. */
   sensor_entities: Partial<Record<Kind, string>>;
 }
