@@ -135,6 +135,31 @@ class VurioClient:
         )
         return list(answer.get("covered") or [])
 
+    async def timeline(self, cameras: list[str], start: datetime, end: datetime) -> dict[str, Any]:
+        """Detections, and what was recorded, between two moments."""
+        return await self._json(
+            "/api/events/timeline",
+            {"cameras": ",".join(cameras), "from": rfc3339(start), "to": rfc3339(end)},
+        )
+
+    async def live_socket(self, camera: str, quality: str) -> aiohttp.ClientWebSocketResponse:
+        """Vurio's live websocket for one camera: MSE fragments or WebRTC signalling."""
+        url = URL(self.url).with_scheme("wss" if URL(self.url).scheme == "https" else "ws")
+        try:
+            return await self._session.ws_connect(
+                str(url.with_path(f"/api/live/{quote(camera)}/ws")),
+                params={"quality": quality},
+                headers=self._headers,
+                heartbeat=30,
+                max_msg_size=0,
+            )
+        except aiohttp.WSServerHandshakeError as err:
+            if err.status == 401:
+                raise VurioAuthError("Vurio refused the API token") from err
+            raise VurioError(f"Vurio refused the live view: {err.status}") from err
+        except (aiohttp.ClientError, TimeoutError) as err:
+            raise VurioError(f"Vurio's live view could not be reached: {err}") from err
+
     async def clip(self, camera: str, start: datetime, end: datetime) -> aiohttp.ClientResponse:
         """A few minutes of footage as one mp4, still to be read."""
         try:

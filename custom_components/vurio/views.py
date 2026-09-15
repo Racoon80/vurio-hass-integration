@@ -8,8 +8,10 @@ the integration's token.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 
+import aiohttp
 from aiohttp import web
 
 from homeassistant.components.http import HomeAssistantView
@@ -104,6 +106,68 @@ class VurioFrameView(HomeAssistantView):
         )
 
 
+QUALITIES = ("main", "sub")
+
+
+class VurioLiveView(HomeAssistantView):
+    """A camera's live websocket, carried between the browser and Vurio.
+
+    Frames are passed on as they are — Vurio's go2rtc speaks MSE and WebRTC
+    signalling over the same socket, and nothing here needs to understand
+    either. The browser reaches it with a signed path, which is how an element
+    that cannot send a header authenticates to Home Assistant.
+    """
+
+    url = "/api/vurio/{entry_id}/live/{camera}/ws"
+    name = "api:vurio:live"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def get(self, request: web.Request, entry_id: str, camera: str) -> web.StreamResponse:
+        client = client_for(self.hass, entry_id)
+        if client is None:
+            raise web.HTTPNotFound
+
+        quality = request.query.get("quality", "sub")
+        if quality not in QUALITIES:
+            raise web.HTTPBadRequest
+
+        try:
+            upstream = await client.live_socket(camera, quality)
+        except VurioError as err:
+            raise web.HTTPServiceUnavailable(text=str(err)) from err
+
+        browser = web.WebSocketResponse(heartbeat=30, max_msg_size=0)
+        await browser.prepare(request)
+
+        async def carry(source, target) -> None:
+            async for message in source:
+                if message.type == aiohttp.WSMsgType.TEXT:
+                    await target.send_str(message.data)
+                elif message.type == aiohttp.WSMsgType.BINARY:
+                    await target.send_bytes(message.data)
+                else:
+                    break
+
+        both = [
+            asyncio.ensure_future(carry(browser, upstream)),
+            asyncio.ensure_future(carry(upstream, browser)),
+        ]
+        try:
+            await asyncio.wait(both, return_when=asyncio.FIRST_COMPLETED)
+        except (aiohttp.ClientError, ConnectionResetError):
+            pass
+        finally:
+            for task in both:
+                task.cancel()
+            await upstream.close()
+            await browser.close()
+
+        return browser
+
+
 def register(hass: HomeAssistant) -> None:
     """Once per Home Assistant, however many installations are added."""
     key = f"{DOMAIN}_views"
@@ -111,4 +175,5 @@ def register(hass: HomeAssistant) -> None:
         return
     hass.http.register_view(VurioClipView(hass))
     hass.http.register_view(VurioFrameView(hass))
+    hass.http.register_view(VurioLiveView(hass))
     hass.data[key] = True
