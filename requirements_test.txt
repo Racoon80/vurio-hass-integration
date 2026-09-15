@@ -1,0 +1,6 @@
+pytest-homeassistant-custom-component
+# What Home Assistant's camera and stream components import, which the test
+# harness does not install with them.
+PyTurboJPEG
+av
+numpy

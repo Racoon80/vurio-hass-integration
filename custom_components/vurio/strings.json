@@ -1,0 +1,60 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Vurio",
+        "description": "Make an API token in Vurio under Settings → API tokens, with live:view, events:read and recordings:read — and cameras:manage to switch cameras from here.",
+        "data": {
+          "url": "Address",
+          "token": "API token",
+          "verify_ssl": "Verify the TLS certificate"
+        },
+        "data_description": {
+          "url": "Where Vurio answers, for example http://192.168.1.10:8099."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Vurio needs a new token",
+        "description": "The API token for {url} was refused. Make a new one in Vurio and enter it here.",
+        "data": {
+          "token": "API token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Vurio could not be reached at that address.",
+      "invalid_auth": "Vurio refused the token.",
+      "missing_permission": "The token needs at least live:view."
+    },
+    "abort": {
+      "already_configured": "This Vurio installation is already added.",
+      "reauth_successful": "The new token works."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "motion": { "name": "Motion" },
+      "person": { "name": "Person" },
+      "vehicle": { "name": "Vehicle" },
+      "animal": { "name": "Animal" },
+      "online": { "name": "Recording" }
+    },
+    "sensor": {
+      "schedule": {
+        "name": "Schedule",
+        "state": {
+          "continuous": "Continuous",
+          "events": "Events only",
+          "off": "Off"
+        }
+      }
+    },
+    "switch": {
+      "recording": { "name": "Record" },
+      "detection": { "name": "Detect" }
+    },
+    "image": {
+      "last_event": { "name": "Last event" }
+    }
+  }
+}
