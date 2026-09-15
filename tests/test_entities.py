@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import patch
 
+import aiohttp
 from homeassistant.components.camera import async_get_stream_source
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import HomeAssistant
@@ -84,6 +86,29 @@ async def test_the_event_stream_turns_a_sensor_on_and_changes_a_camera(
     assert hass.states.get("sensor.garden_schedule").state == "off"
     assert hass.states.get("binary_sensor.garden_recording").state == STATE_OFF
 
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_a_stream_that_breaks_off_is_opened_again(
+    hass: HomeAssistant, entry: MockConfigEntry, aioclient_mock: AiohttpClientMocker
+) -> None:
+    aioclient_mock.get(f"{URL}/api/integration", json=integration())
+    opened = 0
+
+    async def breaking_off_then_telling(self):
+        nonlocal opened
+        opened += 1
+        if opened == 1:
+            # An error the loop did not name used to end it for good, and the
+            # sensors never moved again until Home Assistant restarted.
+            raise aiohttp.ClientPayloadError("Response payload is not completed")
+        yield "sensor", {"camera": "garden", "kind": "person", "on": True}
+
+    with patch("custom_components.vurio.api.VurioClient.stream", breaking_off_then_telling):
+        await set_up(hass, entry)
+        await until(lambda: hass.states.get("binary_sensor.garden_person").state == STATE_ON)
+
+    assert opened >= 2
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 

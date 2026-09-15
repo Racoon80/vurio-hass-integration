@@ -207,22 +207,28 @@ class VurioClient:
             name: str | None = None
             data: list[str] = []
 
-            async for raw in response.content:
-                line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+            try:
+                async for raw in response.content:
+                    line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
 
-                if not line:
-                    if data:
-                        yield name or "message", json.loads("\n".join(data))
-                    name, data = None, []
-                elif line.startswith(":"):
-                    continue
-                else:
-                    field, _, value = line.partition(":")
-                    value = value.removeprefix(" ")
-                    if field == "event":
-                        name = value
-                    elif field == "data":
-                        data.append(value)
+                    if not line:
+                        if data:
+                            yield name or "message", json.loads("\n".join(data))
+                        name, data = None, []
+                    elif line.startswith(":"):
+                        continue
+                    else:
+                        field, _, value = line.partition(":")
+                        value = value.removeprefix(" ")
+                        if field == "event":
+                            name = value
+                        elif field == "data":
+                            data.append(value)
+            except (aiohttp.ClientError, TimeoutError) as err:
+                # What a Vurio that restarts looks like from here: the
+                # connection goes in the middle of a read. That is the stream
+                # ending, to be opened again, not a failure of the integration.
+                raise VurioError(f"Vurio's event stream broke off: {err}") from err
 
 
 def _raise_for(response: aiohttp.ClientResponse) -> None:

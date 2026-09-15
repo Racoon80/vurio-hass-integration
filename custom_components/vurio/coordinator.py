@@ -114,6 +114,11 @@ class VurioCoordinator(DataUpdateCoordinator[VurioData]):
                 return
             except (VurioError, ValueError, KeyError, TypeError) as err:
                 LOGGER.debug("Vurio's event stream ended: %s", err)
+            except Exception:  # noqa: BLE001 - one surprise must not end the stream for good
+                # The task is the only thing that ever opens the stream again.
+                # An error it did not expect used to end it silently, and every
+                # sensor then stayed as it was until Home Assistant restarted.
+                LOGGER.warning("Vurio's event stream failed; opening it again", exc_info=True)
             await asyncio.sleep(delay)
             delay = min(delay * 2, RETRY_MAX)
 
