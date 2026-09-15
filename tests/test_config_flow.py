@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from ipaddress import ip_address
 from unittest.mock import patch
 
 from homeassistant import config_entries
+from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 from homeassistant.const import CONF_TOKEN, CONF_URL, CONF_VERIFY_SSL
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -62,6 +65,57 @@ async def test_a_token_that_may_not_watch_is_refused(
     result = await start(hass)
 
     assert result["errors"] == {"base": "missing_permission"}
+
+
+DISCOVERED = ZeroconfServiceInfo(
+    ip_address=ip_address("192.168.10.100"),
+    ip_addresses=[ip_address("192.168.10.100")],
+    port=8099,
+    hostname="beast.local.",
+    type="_vurio._tcp.local.",
+    name="Vurio on beast._vurio._tcp.local.",
+    properties={"version": "0.0.1", "path": "/"},
+)
+
+FOUND = "http://192.168.10.100:8099"
+
+
+async def test_vurio_found_on_the_network_asks_only_for_the_token(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    aioclient_mock.get(f"{FOUND}/api/auth/me", json=ME)
+    aioclient_mock.get(f"{FOUND}/api/integration", json=integration())
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF}, data=DISCOVERED
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "zeroconf_confirm"
+    assert result["description_placeholders"] == {"url": FOUND}
+
+    with patch("custom_components.vurio.async_setup_entry", return_value=True):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_TOKEN: "token"}
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {CONF_URL: FOUND, CONF_TOKEN: "token", CONF_VERIFY_SSL: True}
+
+
+async def test_vurio_found_again_is_not_offered_twice(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    MockConfigEntry(domain=DOMAIN, unique_id=FOUND, data={CONF_URL: FOUND, CONF_TOKEN: "t"}).add_to_hass(
+        hass
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF}, data=DISCOVERED
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
 
 
 async def test_an_address_with_nothing_there_cannot_connect(

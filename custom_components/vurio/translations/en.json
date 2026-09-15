@@ -1,6 +1,14 @@
 {
   "config": {
+    "flow_title": "{name}",
     "step": {
+      "zeroconf_confirm": {
+        "title": "Vurio found",
+        "description": "Vurio answers at {url}. Make an API token in Vurio under Settings → API tokens, with live:view, events:read and recordings:read — and cameras:manage to switch cameras from here — and enter it below.",
+        "data": {
+          "token": "API token"
+        }
+      },
       "user": {
         "title": "Connect to Vurio",
         "description": "Make an API token in Vurio under Settings → API tokens, with live:view, events:read and recordings:read — and cameras:manage to switch cameras from here.",
@@ -28,6 +36,7 @@
     },
     "abort": {
       "already_configured": "This Vurio installation is already added.",
+      "not_ipv4": "Vurio announced an address Home Assistant cannot use; add it by hand.",
       "reauth_successful": "The new token works."
     }
   },
