@@ -11,7 +11,7 @@
       },
       "user": {
         "title": "Connect to Vurio",
-        "description": "Make an API token in Vurio under Settings → API tokens, with live:view, events:read and recordings:read — and cameras:manage to switch cameras from here.",
+        "description": "Make an API token in Vurio under Settings → API tokens. It needs live:view; add events:read and recordings:read for events, pictures and recordings, and cameras:manage to switch cameras from here. Each permission is one entry — a token with only recordings:read cannot watch the cameras.",
         "data": {
           "url": "Address",
           "token": "API token",
@@ -27,26 +27,46 @@
         "data": {
           "token": "API token"
         }
+      },
+      "reconfigure": {
+        "title": "Change Vurio's address or token",
+        "description": "For a token with more permissions, make a new one in Vurio under Settings → API tokens — the Home Assistant preset has all four: live:view, events:read, recordings:read and cameras:manage — and enter it here. Entities and dashboards stay as they are.",
+        "data": {
+          "url": "Address",
+          "token": "API token",
+          "verify_ssl": "Verify the TLS certificate"
+        }
       }
     },
     "error": {
       "cannot_connect": "Vurio could not be reached at that address.",
       "invalid_auth": "Vurio refused the token.",
-      "missing_permission": "The token needs at least live:view."
+      "missing_permission": "The token needs at least live:view. For events, pictures, recordings and switches give it events:read, recordings:read and cameras:manage as well."
     },
     "abort": {
       "already_configured": "This Vurio installation is already added.",
       "not_ipv4": "Vurio announced an address Home Assistant cannot use; add it by hand.",
-      "reauth_successful": "The new token works."
+      "reauth_successful": "The new token works.",
+      "reconfigure_successful": "Vurio uses the new settings."
     }
   },
   "entity": {
     "binary_sensor": {
-      "motion": { "name": "Motion" },
-      "person": { "name": "Person" },
-      "vehicle": { "name": "Vehicle" },
-      "animal": { "name": "Animal" },
-      "online": { "name": "Recording" }
+      "motion": {
+        "name": "Motion"
+      },
+      "person": {
+        "name": "Person"
+      },
+      "vehicle": {
+        "name": "Vehicle"
+      },
+      "animal": {
+        "name": "Animal"
+      },
+      "online": {
+        "name": "Recording"
+      }
     },
     "sensor": {
       "schedule": {
@@ -59,11 +79,17 @@
       }
     },
     "switch": {
-      "recording": { "name": "Record" },
-      "detection": { "name": "Detect" }
+      "recording": {
+        "name": "Record"
+      },
+      "detection": {
+        "name": "Detect"
+      }
     },
     "image": {
-      "last_event": { "name": "Last event" }
+      "last_event": {
+        "name": "Last event"
+      }
     }
   }
 }

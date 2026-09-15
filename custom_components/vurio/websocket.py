@@ -15,8 +15,15 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from .api import VurioError, parse_time
+from .api import VurioError, VurioPermissionError, parse_time
 from .const import DOMAIN, KINDS
+
+# Said to the card when the token can watch and cannot read what it asked for.
+NEEDS = (
+    "The Vurio token needs events:read and recordings:read for events and the timeline. "
+    "Make one in Vurio (Settings → API tokens, Home Assistant preset) and enter it under "
+    "Settings → Devices & services → Vurio → Reconfigure."
+)
 
 
 def async_register(hass: HomeAssistant) -> None:
@@ -88,6 +95,9 @@ async def events(hass: HomeAssistant, connection: websocket_api.ActiveConnection
         return
     try:
         found = await coordinator.client.events(msg["camera"], msg["limit"])
+    except VurioPermissionError:
+        connection.send_error(msg["id"], "missing_permission", NEEDS)
+        return
     except VurioError as err:
         connection.send_error(msg["id"], "vurio_error", str(err))
         return
@@ -118,6 +128,9 @@ async def timeline(hass: HomeAssistant, connection: websocket_api.ActiveConnecti
         return
     try:
         answer = await coordinator.client.timeline(msg["cameras"], start, end)
+    except VurioPermissionError:
+        connection.send_error(msg["id"], "missing_permission", NEEDS)
+        return
     except VurioError as err:
         connection.send_error(msg["id"], "vurio_error", str(err))
         return

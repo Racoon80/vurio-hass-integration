@@ -82,6 +82,26 @@ async def test_events_and_the_timeline_come_through_home_assistant(
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
+async def test_a_watch_only_token_gets_a_sentence_about_what_it_lacks(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    await set_up(hass, entry, aioclient_mock)
+    aioclient_mock.get(f"{URL}/api/events/recent", status=403)
+    client = await hass_ws_client(hass)
+
+    await client.send_json_auto_id({"type": "vurio/events", "entry_id": entry.entry_id, "camera": "garden"})
+    answer = await client.receive_json()
+
+    assert not answer["success"]
+    assert answer["error"]["code"] == "missing_permission"
+    assert "events:read" in answer["error"]["message"]
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
 async def test_the_card_is_served_and_the_live_view_refuses_what_it_should(
     hass: HomeAssistant,
     entry: MockConfigEntry,

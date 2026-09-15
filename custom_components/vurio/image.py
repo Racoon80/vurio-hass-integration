@@ -9,7 +9,8 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import KINDS
+from .api import VurioError, VurioPermissionError
+from .const import KINDS, LOGGER
 from .coordinator import VurioCoordinator
 from .entity import VurioEntity, add_per_camera
 
@@ -42,6 +43,7 @@ class VurioLastEvent(VurioEntity, ImageEntity):
         VurioEntity.__init__(self, coordinator, camera, "last_event")
         ImageEntity.__init__(self, hass)
         self._on = self._sensors_on()
+        self._told = False
         # So the newest event already there is shown from the start.
         self._attr_image_last_updated = dt_util.utcnow()
 
@@ -59,7 +61,21 @@ class VurioLastEvent(VurioEntity, ImageEntity):
         super()._handle_coordinator_update()
 
     async def async_image(self) -> bytes | None:
-        event = await self.coordinator.client.latest_event(self.camera)
-        if event is None:
+        try:
+            event = await self.coordinator.client.latest_event(self.camera)
+            if event is None:
+                return None
+            return await self.coordinator.client.event_frame(str(event["id"]), WIDTH)
+        except VurioPermissionError:
+            # The token can watch but not read events: no picture, said once
+            # rather than a traceback every time a dashboard asks.
+            if not self._told:
+                self._told = True
+                LOGGER.warning(
+                    "the Vurio token lacks events:read and recordings:read, so %s shows no event picture",
+                    self.entity_id,
+                )
             return None
-        return await self.coordinator.client.event_frame(str(event["id"]), WIDTH)
+        except VurioError as err:
+            LOGGER.debug("no event picture for %s: %s", self.entity_id, err)
+            return None

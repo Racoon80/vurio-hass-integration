@@ -118,6 +118,44 @@ async def test_vurio_found_again_is_not_offered_twice(
     assert result["reason"] == "already_configured"
 
 
+async def test_reconfigure_replaces_the_token_and_keeps_the_entry(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=URL,
+        data={CONF_URL: URL, CONF_TOKEN: "watch-only", CONF_VERIFY_SSL: True},
+    )
+    entry.add_to_hass(hass)
+    aioclient_mock.get(f"{URL}/api/auth/me", json=ME)
+    aioclient_mock.get(f"{URL}/api/integration", json=integration())
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    with patch("custom_components.vurio.async_setup_entry", return_value=True):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_URL: URL, CONF_TOKEN: "everything", CONF_VERIFY_SSL: True}
+        )
+        await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_TOKEN] == "everything"
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+
+
+async def test_a_token_with_only_recordings_read_is_refused_by_name(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    aioclient_mock.get(f"{URL}/api/auth/me", json={**ME, "permissions": ["recordings:read"]})
+
+    result = await start(hass)
+
+    assert result["errors"] == {"base": "missing_permission"}
+
+
 async def test_an_address_with_nothing_there_cannot_connect(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:

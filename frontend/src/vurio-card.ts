@@ -305,8 +305,13 @@ class VurioCard extends LitElement {
       );
       this.requestUpdate();
     } catch (error) {
-      // Events need events:read and pictures recordings:read on the token; say so rather than show nothing.
-      this.error = `Events could not be read: ${(error as Error).message ?? error}`;
+      // A token that may only watch: the live picture works, and the rest says
+      // what to change rather than showing nothing.
+      const failure = error as { code?: string; message?: string };
+      this.error =
+        failure.code === "missing_permission"
+          ? (failure.message ?? "The Vurio token needs events:read and recordings:read.")
+          : `Events could not be read: ${failure.message ?? String(error)}`;
     }
   }
 

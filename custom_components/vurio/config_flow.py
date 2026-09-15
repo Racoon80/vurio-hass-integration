@@ -126,6 +126,40 @@ class VurioConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={"url": self._discovered},
         )
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """A new token, or a new address, for an installation already added.
+
+        The same entry keeps its entities, its dashboards and their history —
+        which removing the integration and adding it again would not.
+        """
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            url = normalised(user_input[CONF_URL])
+            token = user_input[CONF_TOKEN].strip()
+            verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
+            if await self._checked(url, token, verify_ssl, errors):
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data_updates={CONF_URL: url, CONF_TOKEN: token, CONF_VERIFY_SSL: verify_ssl},
+                )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                USER_SCHEMA,
+                {
+                    CONF_URL: entry.data[CONF_URL],
+                    CONF_VERIFY_SSL: entry.data.get(CONF_VERIFY_SSL, True),
+                    **({CONF_URL: user_input[CONF_URL]} if user_input else {}),
+                },
+            ),
+            errors=errors,
+        )
+
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
         """The token was revoked or expired."""
         return await self.async_step_reauth_confirm()
