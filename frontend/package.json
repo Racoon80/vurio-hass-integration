@@ -1,6 +1,6 @@
 {
   "name": "vurio-card",
-  "version": "0.3.0",
+  "version": "0.3.3",
   "private": true,
   "description": "The Vurio card for Home Assistant: live cameras, events and the detection timeline",
   "type": "module",

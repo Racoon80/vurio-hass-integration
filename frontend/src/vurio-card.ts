@@ -15,6 +15,7 @@ import {
   type VurioCamera,
   type VurioEvent,
 } from "./api";
+import { keepDefined } from "./define";
 import { LiveStream, type LiveStatus } from "./live";
 import { ROWS, clipAt, eventRange, position, rows, ticks, what } from "./timeline";
 
@@ -602,8 +603,10 @@ class VurioCard extends LitElement {
   `;
 }
 
-if (!customElements.get("vurio-live")) customElements.define("vurio-live", VurioLive);
-if (!customElements.get("vurio-card")) customElements.define("vurio-card", VurioCard);
+keepDefined([
+  ["vurio-live", VurioLive],
+  ["vurio-card", VurioCard],
+]);
 
 declare global {
   interface Window {
