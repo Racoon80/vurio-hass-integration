@@ -7,7 +7,21 @@ const source = (await readFile(new URL("../src/timeline.ts", import.meta.url), "
   /^import type .*$/m,
   "",
 );
-const { merged, rows, position, ticks, eventRange, clipAt, what, CLIP } = await import(
+const {
+  merged,
+  rows,
+  position,
+  ticks,
+  eventRange,
+  clipAt,
+  what,
+  moved,
+  scaled,
+  ROWS,
+  NARROWEST,
+  WIDEST,
+  CLIP,
+} = await import(
   "data:text/javascript;base64," + Buffer.from(stripTypeScriptTypes(source)).toString("base64")
 );
 
@@ -73,4 +87,53 @@ test("classes are said as people say them", () => {
   assert.equal(what({ ...base, kind: "object", label: "dog" }), "animal");
   assert.equal(what({ ...base, kind: "object", label: "person" }), "person");
   assert.equal(what({ ...base, kind: "object", label: "umbrella" }), "other");
+});
+
+test("the window moves through time and stops at the present", () => {
+  const now = at("2026-09-17T12:00:00Z");
+  const window = { from: at("2026-09-17T11:00:00Z"), to: now };
+
+  // Half a window back, and back again.
+  const back = moved(window, -0.5, now);
+  assert.equal(new Date(back.from).toISOString(), "2026-09-17T10:30:00.000Z");
+  assert.equal(new Date(back.to).toISOString(), "2026-09-17T11:30:00.000Z");
+  assert.equal(new Date(moved(back, -0.5, now).to).toISOString(), "2026-09-17T11:00:00.000Z");
+
+  // Forward from there, and never past now however far it is pushed.
+  assert.equal(new Date(moved(back, 0.5, now).to).toISOString(), "2026-09-17T12:00:00.000Z");
+  assert.equal(moved(window, 5, now).to, now);
+  assert.equal(moved(window, 5, now).to - moved(window, 5, now).from, 3_600_000);
+});
+
+test("zooming keeps the middle and knows how close and how far it may go", () => {
+  const now = at("2026-09-17T12:00:00Z");
+  const window = { from: at("2026-09-17T10:00:00Z"), to: at("2026-09-17T11:00:00Z") };
+  const middle = (window.from + window.to) / 2;
+
+  const closer = scaled(window, 0.5, now);
+  assert.equal(closer.to - closer.from, 1_800_000);
+  assert.equal((closer.from + closer.to) / 2, middle);
+
+  const further = scaled(window, 4, now);
+  assert.equal(further.to - further.from, 4 * 3_600_000);
+
+  // Never narrower than a quarter of an hour, never wider than a week.
+  assert.equal(scaled(window, 0.0001, now).to - scaled(window, 0.0001, now).from, NARROWEST);
+  assert.equal(scaled(window, 1000, now).to - scaled(window, 1000, now).from, WIDEST);
+  // And never showing the future: a window zoomed out at the present ends now.
+  assert.equal(scaled({ from: now - 3_600_000, to: now }, 4, now).to, now);
+});
+
+test("the timeline draws the rows Vurio's own does, objects and plates among them", () => {
+  assert.deepEqual([...ROWS], ["motion", "person", "vehicle", "animal", "other", "plate"]);
+
+  const detections = [
+    { camera: "cave", group: "other", started_at: "2026-09-17T10:00:00Z", ended_at: "2026-09-17T10:00:30Z" },
+    { camera: "cave", group: "plate", started_at: "2026-09-17T10:05:00Z", ended_at: "2026-09-17T10:05:10Z" },
+  ];
+  const drawn = rows(detections, "cave", at("2026-09-17T10:00:00Z"), at("2026-09-17T11:00:00Z"), at("2026-09-17T11:00:00Z"));
+
+  assert.equal(drawn.other.length, 1);
+  assert.equal(drawn.plate.length, 1);
+  assert.equal(drawn.person.length, 0);
 });

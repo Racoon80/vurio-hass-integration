@@ -17,7 +17,18 @@ import {
 } from "./api";
 import { keepDefined } from "./define";
 import { LiveStream, type LiveStatus } from "./live";
-import { ROWS, clipAt, eventRange, position, rows, ticks, what } from "./timeline";
+import {
+  ROWS,
+  STEP,
+  clipAt,
+  eventRange,
+  moved,
+  position,
+  rows,
+  scaled,
+  ticks,
+  what,
+} from "./timeline";
 
 interface CardConfig {
   type: string;
@@ -31,20 +42,24 @@ interface CardConfig {
   grid_columns?: number;
 }
 
-const ICONS: Record<Kind | "other", string> = {
+const ICONS: Record<Kind | "other" | "plate", string> = {
   motion: "mdi:motion-sensor",
   person: "mdi:walk",
   vehicle: "mdi:car",
   animal: "mdi:paw",
   other: "mdi:shape-outline",
+  plate: "mdi:card-text-outline",
 };
 
-const LABELS: Record<Kind | "other", string> = {
+const LABELS: Record<Kind | "other" | "plate", string> = {
   motion: "Motion",
   person: "Person",
   vehicle: "Vehicle",
   animal: "Animal",
-  other: "Other",
+  // "Object": everything else the model named, and what Vurio's own timeline
+  // calls that row. It was "Other", which named the row after what it is not.
+  other: "Object",
+  plate: "Plate",
 };
 
 const time = (at: number | string) =>
@@ -161,6 +176,7 @@ class VurioCard extends LitElement {
     filter: { state: true },
     playing: { state: true },
     timeline: { state: true },
+    span: { state: true },
     liveStatus: { state: true },
     muted: { state: true },
     error: { state: true },
@@ -175,6 +191,12 @@ class VurioCard extends LitElement {
   filter: Kind | "all" = "all";
   playing: { url: string; title: string } | null = null;
   timeline: TimelineData | null = null;
+  // The stretch of time the strip draws. `null` follows the present; moving
+  // or zooming pins it, and Now lets go again.
+  span: { from: number; to: number } | null = null;
+  // The last load, so a drag that ends where it started does not reload, and
+  // a hundred wheel notches are one request.
+  private loading = 0;
   liveStatus = "";
   muted = true;
   error = "";
@@ -288,12 +310,33 @@ class VurioCard extends LitElement {
     return Boolean(camera.sensors?.[kind]);
   }
 
+  /** The stretch the strip draws: what was chosen, or the last `hours` up to now. */
+  private window(): { from: number; to: number } {
+    if (this.span) return this.span;
+    const to = Date.now();
+
+    return { from: to - (this.config.hours ?? 24) * 3_600_000, to };
+  }
+
+  /** Show another stretch, and read what happened in it. */
+  private show(window: { from: number; to: number } | null): void {
+    this.span = window;
+    this.requestUpdate();
+    const mine = ++this.loading;
+    // A moment's wait: dragging across a day is one request at the end of it,
+    // not one for every pixel on the way.
+    window === null
+      ? void this.refresh()
+      : setTimeout(() => {
+          if (this.loading === mine) void this.refresh();
+        }, 250);
+  }
+
   private async refresh(): Promise<void> {
     const hass = this.hass;
     const camera = this.current();
     if (!hass || !camera) return;
-    const to = Date.now();
-    const from = to - (this.config.hours ?? 24) * 3_600_000;
+    const { from, to } = this.window();
     try {
       const [events, timeline] = await Promise.all([
         this.config.events === false ? Promise.resolve([]) : listEvents(hass, camera, 60),
@@ -328,6 +371,7 @@ class VurioCard extends LitElement {
     this.playing = null;
     this.events = [];
     this.timeline = null;
+    this.span = null;
     void this.refresh();
   }
 
@@ -480,30 +524,71 @@ class VurioCard extends LitElement {
     const data = this.timeline;
     if (!data) return nothing;
     const now = Date.now();
-    const from = now - (this.config.hours ?? 24) * 3_600_000;
-    const bars = rows(data.detections, camera.camera, from, now, now);
+    const { from, to } = this.window();
+    const bars = rows(data.detections, camera.camera, from, to, now);
     const recorded = data.recorded.map((run) => ({ from: Date.parse(run.from), to: Date.parse(run.to) }));
-    const pick = (event: MouseEvent) => {
+    const at = (clientX: number, strip: DOMRect) =>
+      from + ((clientX - strip.left) / strip.width) * (to - from);
+    // A drag moves the window; a click plays. Which one it was is decided by
+    // how far the pointer travelled, because a click is a drag of no distance
+    // and asking people to press exactly still is asking too much.
+    let held: { x: number; from: number; to: number; moved: boolean } | null = null;
+    const grab = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      held = { x: event.clientX, from, to, moved: false };
+      (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    };
+    const drag = (event: PointerEvent) => {
+      if (!held) return;
       const strip = (event.currentTarget as HTMLElement).getBoundingClientRect();
-      const at = from + ((event.clientX - strip.left) / strip.width) * (now - from);
-      const range = clipAt(at, data.recorded);
+      const by = ((held.x - event.clientX) / strip.width) * (held.to - held.from);
+      if (!held.moved && Math.abs(event.clientX - held.x) < 4) return;
+      held.moved = true;
+      const wanted = Math.min(now, held.to + by);
+      this.show({ from: wanted - (held.to - held.from), to: wanted });
+    };
+    const release = (event: PointerEvent) => {
+      const was = held;
+      held = null;
+      if (!was || was.moved) return;
+      const range = clipAt(at(event.clientX, (event.currentTarget as HTMLElement).getBoundingClientRect()), data.recorded);
       if (range) void this.play(range[0], range[1], `${day(range[0])} · ${time(range[0])}`);
     };
+    const wheel = (event: WheelEvent) => {
+      if (!event.deltaY) return;
+      event.preventDefault();
+      this.show(scaled({ from, to }, event.deltaY > 0 ? 1.5 : 1 / 1.5, now));
+    };
+    const live = to >= now - 60_000;
     return html`
       <div class="timeline">
         <div class="labels">${ROWS.map((row) => html`<span>${LABELS[row]}</span>`)}</div>
-        <div class="strip" @click=${pick} title="Play from here">
+        <div class="strip"
+          @pointerdown=${grab}
+          @pointermove=${drag}
+          @pointerup=${release}
+          @pointercancel=${() => (held = null)}
+          @wheel=${wheel}
+          title="Drag to move through time, scroll to zoom, click to play from a moment">
           <svg viewBox="0 0 1000 ${ROWS.length * 14 + 4}" preserveAspectRatio="none">
-            ${recorded.map((run) => svg`<rect class="recorded" x=${position(run.from, from, now) * 10} y="0"
-              width=${Math.max(1, (position(run.to, from, now) - position(run.from, from, now)) * 10)} height=${ROWS.length * 14 + 4}></rect>`)}
+            ${recorded.map((run) => svg`<rect class="recorded" x=${position(run.from, from, to) * 10} y="0"
+              width=${Math.max(1, (position(run.to, from, to) - position(run.from, from, to)) * 10)} height=${ROWS.length * 14 + 4}></rect>`)}
             ${ROWS.map((row, index) =>
-              bars[row].map((bar) => svg`<rect class="bar ${row}" x=${position(bar.from, from, now) * 10} y=${index * 14 + 3}
-                width=${Math.max(2, (position(bar.to, from, now) - position(bar.from, from, now)) * 10)} height="10" rx="2"></rect>`),
+              bars[row].map((bar) => svg`<rect class="bar ${row}" x=${position(bar.from, from, to) * 10} y=${index * 14 + 3}
+                width=${Math.max(2, (position(bar.to, from, to) - position(bar.from, from, to)) * 10)} height="10" rx="2"></rect>`),
             )}
           </svg>
           <div class="ticks">
-            ${ticks(from, now).map((at) => html`<span style="left:${position(at, from, now)}%">${time(at)}</span>`)}
+            ${ticks(from, to).map((mark) => html`<span style="left:${position(mark, from, to)}%">${time(mark)}</span>`)}
           </div>
+        </div>
+        <div class="when">${day(from)} · ${time(from)} – ${time(to)}</div>
+        <div class="moves">
+          <button @click=${() => this.show(moved({ from, to }, -STEP, now))} title="Earlier">‹</button>
+          <button @click=${() => this.show(scaled({ from, to }, 1 / 1.5, now))} title="Closer in">＋</button>
+          <button @click=${() => this.show(scaled({ from, to }, 1.5, now))} title="Further out">－</button>
+          <button @click=${() => this.show(moved({ from, to }, STEP, now))} ?disabled=${live} title="Later">›</button>
+          <button class="now" @click=${() => this.show(null)} ?disabled=${live} title="Back to now">Now</button>
         </div>
       </div>
     `;
@@ -598,6 +683,14 @@ class VurioCard extends LitElement {
     .strip svg { width: 100%; height: ${ROWS.length * 14 + 4}px; display: block; }
     .recorded { fill: rgba(127,127,127,.14); }
     .bar.motion { fill: #4c7dff; } .bar.person { fill: #e5484d; } .bar.vehicle { fill: #f0963a; } .bar.animal { fill: #3fb96d; }
+    .bar.other { fill: #9a6ddb; } .bar.plate { fill: #e6c229; }
+    .strip { cursor: grab; touch-action: pan-y; }
+    .strip:active { cursor: grabbing; }
+    .when { grid-column: 2; font-size: 11px; opacity: 0.7; padding-top: 2px; }
+    .moves { grid-column: 1 / -1; display: flex; gap: 4px; justify-content: flex-end; padding: 2px 0 4px; }
+    .moves button { min-width: 28px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--divider-color, #444);
+      background: transparent; color: inherit; cursor: pointer; font-size: 12px; }
+    .moves button[disabled] { opacity: 0.35; cursor: default; }
     .ticks { position: absolute; left: 0; right: 0; bottom: 0; height: 14px; font-size: 10px; color: var(--secondary-text-color); }
     .ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
   `;

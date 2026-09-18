@@ -1,15 +1,26 @@
 {
   "domain": "vurio",
   "name": "Vurio",
-  "codeowners": ["@Racoon80"],
+  "codeowners": [
+    "@Racoon80"
+  ],
   "config_flow": true,
-  "dependencies": ["http", "media_source", "websocket_api"],
-  "after_dependencies": ["stream", "frontend"],
+  "dependencies": [
+    "http",
+    "media_source",
+    "websocket_api"
+  ],
+  "after_dependencies": [
+    "stream",
+    "frontend"
+  ],
   "documentation": "https://github.com/Racoon80/vurio-hass-integration",
   "integration_type": "hub",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/Racoon80/vurio-hass-integration/issues",
   "requirements": [],
-  "version": "0.3.4",
-  "zeroconf": ["_vurio._tcp.local."]
+  "version": "0.3.5",
+  "zeroconf": [
+    "_vurio._tcp.local."
+  ]
 }

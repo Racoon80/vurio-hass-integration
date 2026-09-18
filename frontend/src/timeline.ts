@@ -2,9 +2,48 @@
 
 import type { Detection, Run, VurioEvent } from "./api";
 
-export const ROWS = ["motion", "person", "vehicle", "animal"] as const;
+/**
+ * The rows of the timeline, in the order they are drawn — the same six as
+ * Vurio's own interface, so a camera reads the same way in both.
+ *
+ * `other` is everything else the model named, a bag or a chair or a bird table,
+ * on one row: a row per class is a page nobody reads. `plate` is the plates
+ * read off the vehicles above, on their own row rather than as a mark on the
+ * vehicle's, because one vehicle is two things to look for.
+ */
+export const ROWS = ["motion", "person", "vehicle", "animal", "other", "plate"] as const;
 
 export type Row = (typeof ROWS)[number];
+
+/** How far a window may be moved, and how much of it a step moves. */
+export const STEP = 0.5;
+
+/** The shortest and longest window the card will show. */
+export const NARROWEST = 15 * 60_000;
+export const WIDEST = 7 * 24 * 3_600_000;
+
+/**
+ * A window moved by a share of its own width, never past `now`.
+ *
+ * Going back is unbounded — Vurio keeps what it keeps, and a window over
+ * footage that has been erased is simply empty — while going forward stops at
+ * the present, because half a window of the future is half a window of nothing.
+ */
+export function moved(window: Interval, by: number, now: number): Interval {
+  const width = window.to - window.from;
+  const to = Math.min(now, window.to + width * by);
+
+  return { from: to - width, to };
+}
+
+/** The same window, `factor` as wide, around its own middle and never past `now`. */
+export function scaled(window: Interval, factor: number, now: number): Interval {
+  const width = Math.min(WIDEST, Math.max(NARROWEST, (window.to - window.from) * factor));
+  const middle = (window.from + window.to) / 2;
+  const to = Math.min(now, middle + width / 2);
+
+  return { from: to - width, to };
+}
 
 export interface Interval {
   from: number;
