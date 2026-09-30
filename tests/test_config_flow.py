@@ -68,16 +68,16 @@ async def test_a_token_that_may_not_watch_is_refused(
 
 
 DISCOVERED = ZeroconfServiceInfo(
-    ip_address=ip_address("192.168.10.100"),
-    ip_addresses=[ip_address("192.168.10.100")],
+    ip_address=ip_address("192.168.1.10"),
+    ip_addresses=[ip_address("192.168.1.10")],
     port=8099,
-    hostname="beast.local.",
+    hostname="vurio.local.",
     type="_vurio._tcp.local.",
-    name="Vurio on beast._vurio._tcp.local.",
+    name="Vurio on vurio._vurio._tcp.local.",
     properties={"version": "0.0.1", "path": "/"},
 )
 
-FOUND = "http://192.168.10.100:8099"
+FOUND = "http://192.168.1.10:8099"
 
 
 async def test_vurio_found_on_the_network_asks_only_for_the_token(

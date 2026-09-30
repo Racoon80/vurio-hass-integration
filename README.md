@@ -1,6 +1,6 @@
 # Vurio for Home Assistant
 
-The [Vurio](https://github.com/Racoon80/vurio) video recorder in Home Assistant:
+The Vurio video recorder in Home Assistant:
 every camera becomes a device with its live stream, what is in front of it, and
 switches for what it does.
 
