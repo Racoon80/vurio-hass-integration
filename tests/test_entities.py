@@ -9,10 +9,13 @@ import aiohttp
 from homeassistant.components.camera import async_get_stream_source
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
+from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
 from custom_components.vurio.api import rtsp_url
+from custom_components.vurio.const import DOMAIN
 
 from .conftest import URL, camera, integration, sse
 
@@ -155,3 +158,43 @@ def test_the_stream_address_escapes_the_login() -> None:
         rtsp_url("10.0.0.2", {"port": 8556, "username": "a b", "password": "p@ss:w/rd"}, "cave")
         == "rtsp://a%20b:p%40ss%3Aw%2Frd@10.0.0.2:8556/cave"
     )
+
+
+async def test_a_camera_vurio_no_longer_has_can_be_removed_but_a_current_one_cannot(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    hass_ws_client,
+) -> None:
+    aioclient_mock.get(f"{URL}/api/integration", json=integration(camera("garden")))
+    aioclient_mock.get(f"{URL}/api/integration/stream", text="")
+    await set_up(hass, entry)
+
+    registry = dr.async_get(hass)
+    gone = registry.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, f"{entry.unique_id}_shed")}
+    )
+    (garden,) = [
+        device
+        for device in dr.async_entries_for_config_entry(registry, entry.entry_id)
+        if (DOMAIN, f"{entry.unique_id}_garden") in device.identifiers
+    ]
+
+    assert await async_setup_component(hass, "config", {})
+    client = await hass_ws_client(hass)
+
+    for device, removable in ((gone, True), (garden, False)):
+        await client.send_json_auto_id(
+            {
+                "type": "config/device_registry/remove_config_entry",
+                "device_id": device.id,
+                "config_entry_id": entry.entry_id,
+            }
+        )
+        response = await client.receive_json()
+        assert response["success"] is removable
+
+    assert registry.async_get(gone.id) is None
+    assert registry.async_get(garden.id) is not None
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
