@@ -200,6 +200,8 @@ class VurioCard extends LitElement {
   liveStatus = "";
   muted = true;
   error = "";
+  /** What a pointer on the timeline strip is holding, while it is down. */
+  private held: { x: number; from: number; to: number; moved: boolean } | null = null;
   private thumbnails = new Map<string, string>();
   private refresher: ReturnType<typeof setInterval> | undefined;
   private lastSensors = "";
@@ -532,24 +534,30 @@ class VurioCard extends LitElement {
     // A drag moves the window; a click plays. Which one it was is decided by
     // how far the pointer travelled, because a click is a drag of no distance
     // and asking people to press exactly still is asking too much.
-    let held: { x: number; from: number; to: number; moved: boolean } | null = null;
+    //
+    // What the pointer is holding lives on the card, not in this function.
+    // Every step of a drag moves the window and so draws the card again, and a
+    // local here was a new, empty one after the first step: the strip moved
+    // once and then ignored the pointer, and the click at the end never
+    // arrived (found 2026-10-07).
     const grab = (event: PointerEvent) => {
       if (event.button !== 0) return;
-      held = { x: event.clientX, from, to, moved: false };
+      this.held = { x: event.clientX, from, to, moved: false };
       (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     };
     const drag = (event: PointerEvent) => {
+      const held = this.held;
       if (!held) return;
       const strip = (event.currentTarget as HTMLElement).getBoundingClientRect();
       const by = ((held.x - event.clientX) / strip.width) * (held.to - held.from);
       if (!held.moved && Math.abs(event.clientX - held.x) < 4) return;
       held.moved = true;
-      const wanted = Math.min(now, held.to + by);
+      const wanted = Math.min(Date.now(), held.to + by);
       this.show({ from: wanted - (held.to - held.from), to: wanted });
     };
     const release = (event: PointerEvent) => {
-      const was = held;
-      held = null;
+      const was = this.held;
+      this.held = null;
       if (!was || was.moved) return;
       const range = clipAt(at(event.clientX, (event.currentTarget as HTMLElement).getBoundingClientRect()), data.recorded);
       if (range) void this.play(range[0], range[1], `${day(range[0])} · ${time(range[0])}`);
@@ -567,7 +575,7 @@ class VurioCard extends LitElement {
           @pointerdown=${grab}
           @pointermove=${drag}
           @pointerup=${release}
-          @pointercancel=${() => (held = null)}
+          @pointercancel=${() => (this.held = null)}
           @wheel=${wheel}
           title="Drag to move through time, scroll to zoom, click to play from a moment">
           <svg viewBox="0 0 1000 ${ROWS.length * 14 + 4}" preserveAspectRatio="none">
