@@ -9,7 +9,11 @@ the integration's token.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import tempfile
+import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import aiohttp
 from aiohttp import web
@@ -24,6 +28,18 @@ from .const import DOMAIN
 MAX_CLIP_SECONDS = 300
 
 CHUNK = 64 * 1024
+
+# Where clips wait for the player's next request. A browser only lets someone
+# jump to a later moment in a video when the server answers byte ranges, and
+# Vurio assembles a clip anew on every request, so answering ranges means
+# keeping the clip for a while. Without this, a click at one minute in a clip
+# playing at ten seconds did nothing (2026-10-07).
+CLIPS = Path(tempfile.gettempdir()) / "vurio-clips"
+# A few clips, a little while: a player asks again as it seeks, nobody after.
+KEEP_CLIPS = 6
+KEEP_FOR = 15 * 60
+
+_making: dict[str, asyncio.Lock] = {}
 
 
 def client_for(hass: HomeAssistant, entry_id: str) -> VurioClient | None:
@@ -59,6 +75,19 @@ class VurioClipView(HomeAssistantView):
         if not 0 < ends - begins <= MAX_CLIP_SECONDS:
             raise web.HTTPBadRequest
 
+        name = hashlib.sha256(f"{entry_id}/{camera}/{begins}/{ends}".encode()).hexdigest()[:32]
+        kept = CLIPS / f"{name}.mp4"
+
+        # One fetch per clip, however many range requests arrive at once.
+        async with _making.setdefault(name, asyncio.Lock()):
+            if not await self.hass.async_add_executor_job(_fresh, kept):
+                await self._fetch(client, camera, begins, ends, kept)
+
+        # FileResponse answers Range and says Accept-Ranges, which is what lets
+        # the player seek.
+        return web.FileResponse(kept, headers={"Content-Type": "video/mp4", "Cache-Control": "no-store"})
+
+    async def _fetch(self, client: VurioClient, camera: str, begins: int, ends: int, kept: Path) -> None:
         try:
             upstream = await client.clip(
                 camera,
@@ -68,18 +97,45 @@ class VurioClipView(HomeAssistantView):
         except VurioError as err:
             raise web.HTTPNotFound from err
 
+        part = kept.with_suffix(".part")
         try:
-            headers = {"Content-Type": "video/mp4", "Cache-Control": "no-store"}
-            if length := upstream.headers.get("Content-Length"):
-                headers["Content-Length"] = length
-            response = web.StreamResponse(headers=headers)
-            await response.prepare(request)
-            async for chunk in upstream.content.iter_chunked(CHUNK):
-                await response.write(chunk)
-            await response.write_eof()
-            return response
+            handle = await self.hass.async_add_executor_job(_open, part)
+            try:
+                async for chunk in upstream.content.iter_chunked(CHUNK):
+                    await self.hass.async_add_executor_job(handle.write, chunk)
+            finally:
+                await self.hass.async_add_executor_job(handle.close)
+            await self.hass.async_add_executor_job(part.replace, kept)
+        except BaseException:
+            await self.hass.async_add_executor_job(lambda: part.unlink(missing_ok=True))
+            raise
         finally:
             upstream.release()
+
+        await self.hass.async_add_executor_job(_sweep, kept)
+
+
+def _open(path: Path):
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return path.open("wb")
+
+
+def _fresh(path: Path) -> bool:
+    try:
+        return time.time() - path.stat().st_mtime < KEEP_FOR
+    except FileNotFoundError:
+        return False
+
+
+def _sweep(keep: Path) -> None:
+    """Drop clips past their time, and the oldest beyond a handful."""
+    try:
+        clips = sorted(CLIPS.glob("*.mp4"), key=lambda clip: clip.stat().st_mtime, reverse=True)
+    except FileNotFoundError:
+        return
+    for index, clip in enumerate(clips):
+        if clip != keep and (index >= KEEP_CLIPS or not _fresh(clip)):
+            clip.unlink(missing_ok=True)
 
 
 class VurioFrameView(HomeAssistantView):
